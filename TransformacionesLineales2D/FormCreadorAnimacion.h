@@ -38,15 +38,32 @@ namespace TransformacionesLineales2D {
     {
     private:
         std::vector<Punto2D>* verticesBase;
+        std::vector<Punto2D>* verticesPersonalizadosTemp;
         std::vector<ConfiguracionFrame>* listaFrames;
         int frameActualIndex;
         int totalFrames;
 
-        // GUI
+        bool faseEdicionIniciada;
+        bool creandoPuntosManuales;
+
+        // GUI - Paso 1: Selección de Figura y Frames
+        System::Windows::Forms::GroupBox^ grpConfigInicial;
         System::Windows::Forms::ComboBox^ cmbObjetos;
         System::Windows::Forms::NumericUpDown^ numTotalFrames;
-        System::Windows::Forms::Button^ btnCrearFrames;
+        System::Windows::Forms::Button^ btnCrearPersonalizada;
+        System::Windows::Forms::Button^ btnConfirmarFiguraYFrames;
 
+        // Panel Emergente Overlay para Puntos Manuales
+        System::Windows::Forms::Panel^ pnlCreacionPuntos;
+        System::Windows::Forms::TextBox^ txtPuntoX;
+        System::Windows::Forms::TextBox^ txtPuntoY;
+        System::Windows::Forms::Button^ btnAgregarPuntoManual;
+        System::Windows::Forms::Button^ btnLimpiarPuntosManual;
+        System::Windows::Forms::Button^ btnEstablecerFiguraManual;
+        System::Windows::Forms::Label^ lblContadorPuntosManual;
+
+        // GUI - Paso 2: Edición de Frames
+        System::Windows::Forms::GroupBox^ grpEdicionFrames;
         System::Windows::Forms::Label^ lblFrameActual;
         System::Windows::Forms::CheckBox^ chkAcumular;
         System::Windows::Forms::CheckBox^ chkAnimarTransicion;
@@ -76,25 +93,34 @@ namespace TransformacionesLineales2D {
         System::Windows::Forms::Button^ btnAnterior;
         System::Windows::Forms::Button^ btnSiguiente;
         System::Windows::Forms::Button^ btnFinalizar;
+        System::Windows::Forms::Button^ btnCambiarFigura;
 
         DoubleBufferedPanel^ previewCanvas;
 
     public:
-        void SetVerticesPersonalizados(const std::vector<Punto2D>& puntos) {
-            if (verticesBase != nullptr) {
-                *verticesBase = puntos;
-                InicializarEstructuraFrames(totalFrames);
-            }
-        }
         FormCreadorAnimacion(void)
         {
             InitializeComponent();
             verticesBase = new std::vector<Punto2D>();
+            verticesPersonalizadosTemp = new std::vector<Punto2D>();
             listaFrames = new std::vector<ConfiguracionFrame>();
             frameActualIndex = 0;
             totalFrames = 3;
+            faseEdicionIniciada = false;
+            creandoPuntosManuales = false;
+
             CargarFiguraDefault(0);
-            InicializarEstructuraFrames(3);
+        }
+
+        void SetVerticesPersonalizados(const std::vector<Punto2D>& puntos) {
+            if (verticesBase != nullptr && !puntos.empty()) {
+                *verticesBase = puntos;
+                if (!cmbObjetos->Items->Contains(L"Figura de Pantalla Principal")) {
+                    cmbObjetos->Items->Add(L"Figura de Pantalla Principal");
+                }
+                cmbObjetos->SelectedItem = L"Figura de Pantalla Principal";
+                if (previewCanvas != nullptr) previewCanvas->Invalidate();
+            }
         }
 
         std::vector<ConfiguracionFrame> GetFramesConfigurados() {
@@ -112,6 +138,12 @@ namespace TransformacionesLineales2D {
                 verticesBase->shrink_to_fit();
                 delete verticesBase;
                 verticesBase = nullptr;
+            }
+            if (verticesPersonalizadosTemp != nullptr) {
+                verticesPersonalizadosTemp->clear();
+                verticesPersonalizadosTemp->shrink_to_fit();
+                delete verticesPersonalizadosTemp;
+                verticesPersonalizadosTemp = nullptr;
             }
             if (listaFrames != nullptr) {
                 for (size_t i = 0; i < listaFrames->size(); ++i) {
@@ -150,9 +182,21 @@ namespace TransformacionesLineales2D {
 
         void InitializeComponent(void)
         {
+            this->grpConfigInicial = (gcnew System::Windows::Forms::GroupBox());
             this->cmbObjetos = (gcnew System::Windows::Forms::ComboBox());
             this->numTotalFrames = (gcnew System::Windows::Forms::NumericUpDown());
-            this->btnCrearFrames = (gcnew System::Windows::Forms::Button());
+            this->btnCrearPersonalizada = (gcnew System::Windows::Forms::Button());
+            this->btnConfirmarFiguraYFrames = (gcnew System::Windows::Forms::Button());
+
+            this->pnlCreacionPuntos = (gcnew System::Windows::Forms::Panel());
+            this->txtPuntoX = (gcnew System::Windows::Forms::TextBox());
+            this->txtPuntoY = (gcnew System::Windows::Forms::TextBox());
+            this->btnAgregarPuntoManual = (gcnew System::Windows::Forms::Button());
+            this->btnLimpiarPuntosManual = (gcnew System::Windows::Forms::Button());
+            this->btnEstablecerFiguraManual = (gcnew System::Windows::Forms::Button());
+            this->lblContadorPuntosManual = (gcnew System::Windows::Forms::Label());
+
+            this->grpEdicionFrames = (gcnew System::Windows::Forms::GroupBox());
             this->lblFrameActual = (gcnew System::Windows::Forms::Label());
             this->chkAcumular = (gcnew System::Windows::Forms::CheckBox());
             this->chkAnimarTransicion = (gcnew System::Windows::Forms::CheckBox());
@@ -183,117 +227,215 @@ namespace TransformacionesLineales2D {
             this->btnAnterior = (gcnew System::Windows::Forms::Button());
             this->btnSiguiente = (gcnew System::Windows::Forms::Button());
             this->btnFinalizar = (gcnew System::Windows::Forms::Button());
+            this->btnCambiarFigura = (gcnew System::Windows::Forms::Button());
+
             this->previewCanvas = (gcnew DoubleBufferedPanel());
 
             this->SuspendLayout();
 
             this->BackColor = Color::FromArgb(18, 18, 18);
-            this->ClientSize = System::Drawing::Size(750, 520);
+            this->ClientSize = System::Drawing::Size(920, 620);
             this->Text = L"Creador de Animaciones por Frames";
 
-            // Combo Figura
+            // --- PASO 1: SELECCIÓN DE FIGURA Y FRAMES (RECUADRO MORADO) ---
+            this->grpConfigInicial->Text = L" PASO 1: Figura y Cantidad de Frames ";
+            this->grpConfigInicial->ForeColor = Color::FromArgb(180, 100, 255);
+            this->grpConfigInicial->Font = (gcnew System::Drawing::Font(L"Segoe UI", 9, System::Drawing::FontStyle::Bold));
+            this->grpConfigInicial->Location = System::Drawing::Point(12, 12);
+            this->grpConfigInicial->Size = System::Drawing::Size(330, 135);
+
             this->cmbObjetos->FormattingEnabled = true;
             this->cmbObjetos->Items->AddRange(gcnew cli::array< System::Object^ >(4) { L"Línea (0,0)", L"Casa", L"Auto", L"Perro" });
-            this->cmbObjetos->Location = System::Drawing::Point(20, 20);
-            this->cmbObjetos->Size = System::Drawing::Size(130, 21);
+            this->cmbObjetos->Location = System::Drawing::Point(12, 25);
+            this->cmbObjetos->Size = System::Drawing::Size(190, 21);
             this->cmbObjetos->SelectedIndex = 1;
             this->cmbObjetos->BackColor = Color::FromArgb(45, 45, 48);
             this->cmbObjetos->ForeColor = Color::White;
             this->cmbObjetos->SelectedIndexChanged += gcnew System::EventHandler(this, &FormCreadorAnimacion::cmbObjetos_SelectedIndexChanged);
 
-            // Num Total Frames
-            this->numTotalFrames->Location = System::Drawing::Point(160, 20);
-            this->numTotalFrames->Size = System::Drawing::Size(50, 20);
+            this->btnCrearPersonalizada->Location = System::Drawing::Point(210, 23);
+            this->btnCrearPersonalizada->Size = System::Drawing::Size(108, 25);
+            this->btnCrearPersonalizada->Text = L"➕ Puntos Manual";
+            EstilarBoton(this->btnCrearPersonalizada, Color::FromArgb(140, 60, 220), Color::White);
+            this->btnCrearPersonalizada->Click += gcnew System::EventHandler(this, &FormCreadorAnimacion::btnCrearPersonalizada_Click);
+
+            System::Windows::Forms::Label^ lblCantFrames = gcnew System::Windows::Forms::Label();
+            lblCantFrames->Text = L"Total de Frames:";
+            lblCantFrames->Location = System::Drawing::Point(12, 58);
+            lblCantFrames->Size = System::Drawing::Size(110, 20);
+            EstilarLabel(lblCantFrames);
+
+            this->numTotalFrames->Location = System::Drawing::Point(125, 56);
+            this->numTotalFrames->Size = System::Drawing::Size(60, 20);
             this->numTotalFrames->Minimum = 1;
             this->numTotalFrames->Maximum = 20;
             this->numTotalFrames->Value = 3;
             this->numTotalFrames->BackColor = Color::FromArgb(45, 45, 48);
             this->numTotalFrames->ForeColor = Color::White;
 
-            this->btnCrearFrames->Location = System::Drawing::Point(220, 18);
-            this->btnCrearFrames->Size = System::Drawing::Size(100, 25);
-            this->btnCrearFrames->Text = L"Set Total Frames";
-            EstilarBoton(this->btnCrearFrames, Color::FromArgb(40, 100, 180), Color::White);
-            this->btnCrearFrames->Click += gcnew System::EventHandler(this, &FormCreadorAnimacion::btnCrearFrames_Click);
+            this->btnConfirmarFiguraYFrames->Location = System::Drawing::Point(12, 88);
+            this->btnConfirmarFiguraYFrames->Size = System::Drawing::Size(306, 32);
+            this->btnConfirmarFiguraYFrames->Text = L"✔ Confirmar e Iniciar Animación";
+            EstilarBoton(this->btnConfirmarFiguraYFrames, Color::FromArgb(0, 200, 100), Color::Black);
+            this->btnConfirmarFiguraYFrames->Click += gcnew System::EventHandler(this, &FormCreadorAnimacion::btnConfirmarFiguraYFrames_Click);
 
-            // Label Frame Actual
-            this->lblFrameActual->Location = System::Drawing::Point(20, 55);
-            this->lblFrameActual->Size = System::Drawing::Size(300, 20);
+            this->grpConfigInicial->Controls->Add(this->cmbObjetos);
+            this->grpConfigInicial->Controls->Add(this->btnCrearPersonalizada);
+            this->grpConfigInicial->Controls->Add(lblCantFrames);
+            this->grpConfigInicial->Controls->Add(this->numTotalFrames);
+            this->grpConfigInicial->Controls->Add(this->btnConfirmarFiguraYFrames);
+
+            // --- PANEL DIBUJO DE PUNTOS MANUALES (OVERLAY SOBRE CANVAS) ---
+            this->pnlCreacionPuntos->Location = System::Drawing::Point(355, 12);
+            this->pnlCreacionPuntos->Size = System::Drawing::Size(550, 70);
+            this->pnlCreacionPuntos->BackColor = Color::FromArgb(30, 30, 38);
+            this->pnlCreacionPuntos->BorderStyle = System::Windows::Forms::BorderStyle::FixedSingle;
+            this->pnlCreacionPuntos->Visible = false;
+
+            System::Windows::Forms::Label^ lblPX = gcnew System::Windows::Forms::Label();
+            lblPX->Text = L"X:"; lblPX->Location = System::Drawing::Point(10, 12); lblPX->Size = System::Drawing::Size(20, 20); EstilarLabel(lblPX);
+            this->txtPuntoX->Location = System::Drawing::Point(30, 10); this->txtPuntoX->Size = System::Drawing::Size(50, 20); EstilarTextBox(this->txtPuntoX); this->txtPuntoX->Text = L"0";
+
+            System::Windows::Forms::Label^ lblPY = gcnew System::Windows::Forms::Label();
+            lblPY->Text = L"Y:"; lblPY->Location = System::Drawing::Point(90, 12); lblPY->Size = System::Drawing::Size(20, 20); EstilarLabel(lblPY);
+            this->txtPuntoY->Location = System::Drawing::Point(110, 10); this->txtPuntoY->Size = System::Drawing::Size(50, 20); EstilarTextBox(this->txtPuntoY); this->txtPuntoY->Text = L"0";
+
+            this->btnAgregarPuntoManual->Location = System::Drawing::Point(170, 8); this->btnAgregarPuntoManual->Size = System::Drawing::Size(80, 25);
+            this->btnAgregarPuntoManual->Text = L"Agregar"; EstilarBoton(this->btnAgregarPuntoManual, Color::FromArgb(0, 150, 200), Color::White);
+            this->btnAgregarPuntoManual->Click += gcnew System::EventHandler(this, &FormCreadorAnimacion::btnAgregarPuntoManual_Click);
+
+            this->btnLimpiarPuntosManual->Location = System::Drawing::Point(255, 8); this->btnLimpiarPuntosManual->Size = System::Drawing::Size(80, 25);
+            this->btnLimpiarPuntosManual->Text = L"Limpiar"; EstilarBoton(this->btnLimpiarPuntosManual, Color::FromArgb(120, 40, 40), Color::White);
+            this->btnLimpiarPuntosManual->Click += gcnew System::EventHandler(this, &FormCreadorAnimacion::btnLimpiarPuntosManual_Click);
+
+            this->btnEstablecerFiguraManual->Location = System::Drawing::Point(345, 8); this->btnEstablecerFiguraManual->Size = System::Drawing::Size(190, 50);
+            this->btnEstablecerFiguraManual->Text = L"✔ Establecer Figura"; EstilarBoton(this->btnEstablecerFiguraManual, Color::FromArgb(0, 200, 100), Color::Black);
+            this->btnEstablecerFiguraManual->Click += gcnew System::EventHandler(this, &FormCreadorAnimacion::btnEstablecerFiguraManual_Click);
+
+            this->lblContadorPuntosManual->Text = L"Puntos creados: 0";
+            this->lblContadorPuntosManual->Location = System::Drawing::Point(10, 40);
+            this->lblContadorPuntosManual->Size = System::Drawing::Size(200, 20);
+            EstilarLabel(this->lblContadorPuntosManual);
+
+            this->pnlCreacionPuntos->Controls->Add(lblPX); this->pnlCreacionPuntos->Controls->Add(this->txtPuntoX);
+            this->pnlCreacionPuntos->Controls->Add(lblPY); this->pnlCreacionPuntos->Controls->Add(this->txtPuntoY);
+            this->pnlCreacionPuntos->Controls->Add(this->btnAgregarPuntoManual);
+            this->pnlCreacionPuntos->Controls->Add(this->btnLimpiarPuntosManual);
+            this->pnlCreacionPuntos->Controls->Add(this->lblContadorPuntosManual);
+            this->pnlCreacionPuntos->Controls->Add(this->btnEstablecerFiguraManual);
+
+            // --- PASO 2: EDICIÓN DE CADA FRAME (RECUADRO VERDE) ---
+            this->grpEdicionFrames->Text = L" PASO 2: Transformación por Frame ";
+            this->grpEdicionFrames->ForeColor = Color::FromArgb(57, 255, 20);
+            this->grpEdicionFrames->Font = (gcnew System::Drawing::Font(L"Segoe UI", 9, System::Drawing::FontStyle::Bold));
+            this->grpEdicionFrames->Location = System::Drawing::Point(12, 155);
+            this->grpEdicionFrames->Size = System::Drawing::Size(330, 450);
+            this->grpEdicionFrames->Enabled = false;
+
+            this->lblFrameActual->Location = System::Drawing::Point(12, 25);
+            this->lblFrameActual->Size = System::Drawing::Size(200, 20);
             this->lblFrameActual->Text = L"FRAME 1 DE 3";
             this->lblFrameActual->Font = (gcnew System::Drawing::Font(L"Segoe UI", 10, System::Drawing::FontStyle::Bold));
             this->lblFrameActual->ForeColor = Color::FromArgb(0, 240, 255);
 
-            // Checkboxes de Modos
-            this->chkAcumular->Location = System::Drawing::Point(20, 80);
-            this->chkAcumular->Size = System::Drawing::Size(220, 20);
+            this->btnCambiarFigura->Location = System::Drawing::Point(225, 22);
+            this->btnCambiarFigura->Size = System::Drawing::Size(93, 23);
+            this->btnCambiarFigura->Text = L"↺ Desbloquear";
+            EstilarBoton(this->btnCambiarFigura, Color::FromArgb(80, 80, 90), Color::White);
+            this->btnCambiarFigura->Click += gcnew System::EventHandler(this, &FormCreadorAnimacion::btnCambiarFigura_Click);
+
+            this->chkAcumular->Location = System::Drawing::Point(12, 50);
+            this->chkAcumular->Size = System::Drawing::Size(250, 20);
             this->chkAcumular->Text = L"Acumular desde frame anterior";
             this->chkAcumular->ForeColor = Color::White;
+            this->chkAcumular->Font = (gcnew System::Drawing::Font(L"Segoe UI", 8, System::Drawing::FontStyle::Regular));
             this->chkAcumular->CheckedChanged += gcnew System::EventHandler(this, &FormCreadorAnimacion::chkAcumular_CheckedChanged);
 
-            this->chkAnimarTransicion->Location = System::Drawing::Point(20, 100);
-            this->chkAnimarTransicion->Size = System::Drawing::Size(220, 20);
+            this->chkAnimarTransicion->Location = System::Drawing::Point(12, 72);
+            this->chkAnimarTransicion->Size = System::Drawing::Size(250, 20);
             this->chkAnimarTransicion->Text = L"Animar transición hacia este frame";
             this->chkAnimarTransicion->Checked = true;
             this->chkAnimarTransicion->ForeColor = Color::FromArgb(57, 255, 20);
+            this->chkAnimarTransicion->Font = (gcnew System::Drawing::Font(L"Segoe UI", 8, System::Drawing::FontStyle::Regular));
 
-            // Inputs
-            int yPos = 130;
-            this->lblOrigenX->Location = System::Drawing::Point(20, yPos); this->lblOrigenX->Text = L"Origen Manual X:"; EstilarLabel(this->lblOrigenX);
-            this->txtOrigenX->Location = System::Drawing::Point(140, yPos); this->txtOrigenX->Size = System::Drawing::Size(80, 20); this->txtOrigenX->Text = L"0"; EstilarTextBox(this->txtOrigenX); yPos += 28;
+            int yPos = 100;
+            this->lblOrigenX->Location = System::Drawing::Point(12, yPos); this->lblOrigenX->Text = L"Origen Manual X:"; EstilarLabel(this->lblOrigenX);
+            this->txtOrigenX->Location = System::Drawing::Point(150, yPos); this->txtOrigenX->Size = System::Drawing::Size(150, 20); this->txtOrigenX->Text = L"0"; EstilarTextBox(this->txtOrigenX); yPos += 28;
 
-            this->lblOrigenY->Location = System::Drawing::Point(20, yPos); this->lblOrigenY->Text = L"Origen Manual Y:"; EstilarLabel(this->lblOrigenY);
-            this->txtOrigenY->Location = System::Drawing::Point(140, yPos); this->txtOrigenY->Size = System::Drawing::Size(80, 20); this->txtOrigenY->Text = L"0"; EstilarTextBox(this->txtOrigenY); yPos += 28;
+            this->lblOrigenY->Location = System::Drawing::Point(12, yPos); this->lblOrigenY->Text = L"Origen Manual Y:"; EstilarLabel(this->lblOrigenY);
+            this->txtOrigenY->Location = System::Drawing::Point(150, yPos); this->txtOrigenY->Size = System::Drawing::Size(150, 20); this->txtOrigenY->Text = L"0"; EstilarTextBox(this->txtOrigenY); yPos += 28;
 
-            this->lblTx->Location = System::Drawing::Point(20, yPos); this->lblTx->Text = L"Traslación X (Tx):"; EstilarLabel(this->lblTx);
-            this->txtTx->Location = System::Drawing::Point(140, yPos); this->txtTx->Size = System::Drawing::Size(80, 20); this->txtTx->Text = L"0"; EstilarTextBox(this->txtTx); yPos += 28;
+            this->lblTx->Location = System::Drawing::Point(12, yPos); this->lblTx->Text = L"Traslación X (Tx):"; EstilarLabel(this->lblTx);
+            this->txtTx->Location = System::Drawing::Point(150, yPos); this->txtTx->Size = System::Drawing::Size(150, 20); this->txtTx->Text = L"0"; EstilarTextBox(this->txtTx); yPos += 28;
 
-            this->lblTy->Location = System::Drawing::Point(20, yPos); this->lblTy->Text = L"Traslación Y (Ty):"; EstilarLabel(this->lblTy);
-            this->txtTy->Location = System::Drawing::Point(140, yPos); this->txtTy->Size = System::Drawing::Size(80, 20); this->txtTy->Text = L"0"; EstilarTextBox(this->txtTy); yPos += 28;
+            this->lblTy->Location = System::Drawing::Point(12, yPos); this->lblTy->Text = L"Traslación Y (Ty):"; EstilarLabel(this->lblTy);
+            this->txtTy->Location = System::Drawing::Point(150, yPos); this->txtTy->Size = System::Drawing::Size(150, 20); this->txtTy->Text = L"0"; EstilarTextBox(this->txtTy); yPos += 28;
 
-            this->lblSx->Location = System::Drawing::Point(20, yPos); this->lblSx->Text = L"Escala X (Sx):"; EstilarLabel(this->lblSx);
-            this->txtSx->Location = System::Drawing::Point(140, yPos); this->txtSx->Size = System::Drawing::Size(80, 20); this->txtSx->Text = L"1"; EstilarTextBox(this->txtSx); yPos += 28;
+            this->lblSx->Location = System::Drawing::Point(12, yPos); this->lblSx->Text = L"Escala X (Sx):"; EstilarLabel(this->lblSx);
+            this->txtSx->Location = System::Drawing::Point(150, yPos); this->txtSx->Size = System::Drawing::Size(150, 20); this->txtSx->Text = L"1"; EstilarTextBox(this->txtSx); yPos += 28;
 
-            this->lblSy->Location = System::Drawing::Point(20, yPos); this->lblSy->Text = L"Escala Y (Sy):"; EstilarLabel(this->lblSy);
-            this->txtSy->Location = System::Drawing::Point(140, yPos); this->txtSy->Size = System::Drawing::Size(80, 20); this->txtSy->Text = L"1"; EstilarTextBox(this->txtSy); yPos += 28;
+            this->lblSy->Location = System::Drawing::Point(12, yPos); this->lblSy->Text = L"Escala Y (Sy):"; EstilarLabel(this->lblSy);
+            this->txtSy->Location = System::Drawing::Point(150, yPos); this->txtSy->Size = System::Drawing::Size(150, 20); this->txtSy->Text = L"1"; EstilarTextBox(this->txtSy); yPos += 28;
 
-            this->lblAngulo->Location = System::Drawing::Point(20, yPos); this->lblAngulo->Text = L"Ángulo (°):"; EstilarLabel(this->lblAngulo);
-            this->txtAngulo->Location = System::Drawing::Point(140, yPos); this->txtAngulo->Size = System::Drawing::Size(80, 20); this->txtAngulo->Text = L"0"; EstilarTextBox(this->txtAngulo); yPos += 28;
+            this->lblAngulo->Location = System::Drawing::Point(12, yPos); this->lblAngulo->Text = L"Ángulo (°):"; EstilarLabel(this->lblAngulo);
+            this->txtAngulo->Location = System::Drawing::Point(150, yPos); this->txtAngulo->Size = System::Drawing::Size(150, 20); this->txtAngulo->Text = L"0"; EstilarTextBox(this->txtAngulo); yPos += 28;
 
-            this->lblShx->Location = System::Drawing::Point(20, yPos); this->lblShx->Text = L"Cizallamiento X:"; EstilarLabel(this->lblShx);
-            this->txtShx->Location = System::Drawing::Point(140, yPos); this->txtShx->Size = System::Drawing::Size(80, 20); this->txtShx->Text = L"0"; EstilarTextBox(this->txtShx); yPos += 28;
+            this->lblShx->Location = System::Drawing::Point(12, yPos); this->lblShx->Text = L"Cizallamiento X:"; EstilarLabel(this->lblShx);
+            this->txtShx->Location = System::Drawing::Point(150, yPos); this->txtShx->Size = System::Drawing::Size(150, 20); this->txtShx->Text = L"0"; EstilarTextBox(this->txtShx); yPos += 28;
 
-            this->lblShy->Location = System::Drawing::Point(20, yPos); this->lblShy->Text = L"Cizallamiento Y:"; EstilarLabel(this->lblShy);
-            this->txtShy->Location = System::Drawing::Point(140, yPos); this->txtShy->Size = System::Drawing::Size(80, 20); this->txtShy->Text = L"0"; EstilarTextBox(this->txtShy); yPos += 28;
+            this->lblShy->Location = System::Drawing::Point(12, yPos); this->lblShy->Text = L"Cizallamiento Y:"; EstilarLabel(this->lblShy);
+            this->txtShy->Location = System::Drawing::Point(150, yPos); this->txtShy->Size = System::Drawing::Size(150, 20); this->txtShy->Text = L"0"; EstilarTextBox(this->txtShy); yPos += 28;
 
-            this->chkReflejoX->Location = System::Drawing::Point(20, yPos); this->chkReflejoX->Text = L"Reflejo X"; this->chkReflejoX->ForeColor = Color::White;
-            this->chkReflejoY->Location = System::Drawing::Point(120, yPos); this->chkReflejoY->Text = L"Reflejo Y"; this->chkReflejoY->ForeColor = Color::White; yPos += 30;
+            this->chkReflejoX->Location = System::Drawing::Point(12, yPos); this->chkReflejoX->Text = L"Reflejo X"; this->chkReflejoX->ForeColor = Color::White; this->chkReflejoX->Font = (gcnew System::Drawing::Font(L"Segoe UI", 8, System::Drawing::FontStyle::Regular));
+            this->chkReflejoY->Location = System::Drawing::Point(130, yPos); this->chkReflejoY->Text = L"Reflejo Y"; this->chkReflejoY->ForeColor = Color::White; this->chkReflejoY->Font = (gcnew System::Drawing::Font(L"Segoe UI", 8, System::Drawing::FontStyle::Regular)); yPos += 30;
 
-            // Botones Navegación
-            this->btnAnterior->Location = System::Drawing::Point(20, yPos);
-            this->btnAnterior->Size = System::Drawing::Size(90, 30);
+            // BOTONES INFERIORES BIEN ALINEADOS
+            this->btnAnterior->Location = System::Drawing::Point(12, yPos);
+            this->btnAnterior->Size = System::Drawing::Size(95, 30);
             this->btnAnterior->Text = L"◄ Anterior";
             EstilarBoton(this->btnAnterior, Color::FromArgb(60, 60, 65), Color::White);
             this->btnAnterior->Click += gcnew System::EventHandler(this, &FormCreadorAnimacion::btnAnterior_Click);
 
-            this->btnSiguiente->Location = System::Drawing::Point(120, yPos);
-            this->btnSiguiente->Size = System::Drawing::Size(90, 30);
+            this->btnSiguiente->Location = System::Drawing::Point(112, yPos);
+            this->btnSiguiente->Size = System::Drawing::Size(95, 30);
             this->btnSiguiente->Text = L"Siguiente ►";
             EstilarBoton(this->btnSiguiente, Color::FromArgb(0, 150, 200), Color::White);
             this->btnSiguiente->Click += gcnew System::EventHandler(this, &FormCreadorAnimacion::btnSiguiente_Click);
 
-            this->btnFinalizar->Location = System::Drawing::Point(220, yPos);
-            this->btnFinalizar->Size = System::Drawing::Size(100, 30);
+            this->btnFinalizar->Location = System::Drawing::Point(212, yPos);
+            this->btnFinalizar->Size = System::Drawing::Size(106, 30);
             this->btnFinalizar->Text = L"✔ Guardar";
             EstilarBoton(this->btnFinalizar, Color::FromArgb(0, 200, 100), Color::Black);
             this->btnFinalizar->Click += gcnew System::EventHandler(this, &FormCreadorAnimacion::btnFinalizar_Click);
 
-            // Preview Canvas
-            this->previewCanvas->Location = System::Drawing::Point(340, 20);
-            this->previewCanvas->Size = System::Drawing::Size(380, 470);
+            this->grpEdicionFrames->Controls->Add(this->lblFrameActual);
+            this->grpEdicionFrames->Controls->Add(this->btnCambiarFigura);
+            this->grpEdicionFrames->Controls->Add(this->chkAcumular);
+            this->grpEdicionFrames->Controls->Add(this->chkAnimarTransicion);
+            this->grpEdicionFrames->Controls->Add(this->lblOrigenX); this->grpEdicionFrames->Controls->Add(this->txtOrigenX);
+            this->grpEdicionFrames->Controls->Add(this->lblOrigenY); this->grpEdicionFrames->Controls->Add(this->txtOrigenY);
+            this->grpEdicionFrames->Controls->Add(this->lblTx); this->grpEdicionFrames->Controls->Add(this->txtTx);
+            this->grpEdicionFrames->Controls->Add(this->lblTy); this->grpEdicionFrames->Controls->Add(this->txtTy);
+            this->grpEdicionFrames->Controls->Add(this->lblSx); this->grpEdicionFrames->Controls->Add(this->txtSx);
+            this->grpEdicionFrames->Controls->Add(this->lblSy); this->grpEdicionFrames->Controls->Add(this->txtSy);
+            this->grpEdicionFrames->Controls->Add(this->lblAngulo); this->grpEdicionFrames->Controls->Add(this->txtAngulo);
+            this->grpEdicionFrames->Controls->Add(this->lblShx); this->grpEdicionFrames->Controls->Add(this->txtShx);
+            this->grpEdicionFrames->Controls->Add(this->lblShy); this->grpEdicionFrames->Controls->Add(this->txtShy);
+            this->grpEdicionFrames->Controls->Add(this->chkReflejoX); this->grpEdicionFrames->Controls->Add(this->chkReflejoY);
+            this->grpEdicionFrames->Controls->Add(this->btnAnterior);
+            this->grpEdicionFrames->Controls->Add(this->btnSiguiente);
+            this->grpEdicionFrames->Controls->Add(this->btnFinalizar);
+
+            // --- CANVAS ADAPTATIVO A TODA LA PANTALLA ---
+            this->previewCanvas->Anchor = static_cast<System::Windows::Forms::AnchorStyles>((((System::Windows::Forms::AnchorStyles::Top | System::Windows::Forms::AnchorStyles::Bottom)
+                | System::Windows::Forms::AnchorStyles::Left)
+                | System::Windows::Forms::AnchorStyles::Right));
+            this->previewCanvas->Location = System::Drawing::Point(355, 12);
+            this->previewCanvas->Size = System::Drawing::Size(550, 593);
             this->previewCanvas->BackColor = Color::FromArgb(5, 5, 5);
             this->previewCanvas->Paint += gcnew System::Windows::Forms::PaintEventHandler(this, &FormCreadorAnimacion::previewCanvas_Paint);
 
-            // Eventos para actualizar la vista previa al escribir
+            // Eventos para refrescar la vista previa al tipear
             this->txtOrigenX->TextChanged += gcnew System::EventHandler(this, &FormCreadorAnimacion::OnValoresChanged);
             this->txtOrigenY->TextChanged += gcnew System::EventHandler(this, &FormCreadorAnimacion::OnValoresChanged);
             this->txtTx->TextChanged += gcnew System::EventHandler(this, &FormCreadorAnimacion::OnValoresChanged);
@@ -306,29 +448,12 @@ namespace TransformacionesLineales2D {
             this->chkReflejoX->CheckedChanged += gcnew System::EventHandler(this, &FormCreadorAnimacion::OnValoresChanged);
             this->chkReflejoY->CheckedChanged += gcnew System::EventHandler(this, &FormCreadorAnimacion::OnValoresChanged);
 
-            this->Controls->Add(this->cmbObjetos);
-            this->Controls->Add(this->numTotalFrames);
-            this->Controls->Add(this->btnCrearFrames);
-            this->Controls->Add(this->lblFrameActual);
-            this->Controls->Add(this->chkAcumular);
-            this->Controls->Add(this->chkAnimarTransicion);
-            this->Controls->Add(this->lblOrigenX); this->Controls->Add(this->txtOrigenX);
-            this->Controls->Add(this->lblOrigenY); this->Controls->Add(this->txtOrigenY);
-            this->Controls->Add(this->lblTx); this->Controls->Add(this->txtTx);
-            this->Controls->Add(this->lblTy); this->Controls->Add(this->txtTy);
-            this->Controls->Add(this->lblSx); this->Controls->Add(this->txtSx);
-            this->Controls->Add(this->lblSy); this->Controls->Add(this->txtSy);
-            this->Controls->Add(this->lblAngulo); this->Controls->Add(this->txtAngulo);
-            this->Controls->Add(this->lblShx); this->Controls->Add(this->txtShx);
-            this->Controls->Add(this->lblShy); this->Controls->Add(this->txtShy);
-            this->Controls->Add(this->chkReflejoX); this->Controls->Add(this->chkReflejoY);
-            this->Controls->Add(this->btnAnterior);
-            this->Controls->Add(this->btnSiguiente);
-            this->Controls->Add(this->btnFinalizar);
+            this->Controls->Add(this->grpConfigInicial);
+            this->Controls->Add(this->grpEdicionFrames);
+            this->Controls->Add(this->pnlCreacionPuntos);
             this->Controls->Add(this->previewCanvas);
 
             this->ResumeLayout(false);
-            this->PerformLayout();
         }
 
         void CargarFiguraDefault(int index) {
@@ -428,10 +553,7 @@ namespace TransformacionesLineales2D {
 
             std::vector<Punto2D> pts = *pEntrada;
 
-            // Convertir el ángulo a radianes
             double rad = f.angulo * 3.14159265358979323846 / 180.0;
-
-            // Matrices de Transformación
             double S[2][2] = { {f.sx, 0.0}, {0.0, f.sy} };
             double Ref[2][2] = { {f.reflejoY ? -1.0 : 1.0, 0.0}, {0.0, f.reflejoX ? -1.0 : 1.0} };
             double Sh[2][2] = { {1.0, f.shx}, {f.shy, 1.0} };
@@ -439,27 +561,15 @@ namespace TransformacionesLineales2D {
 
             for (size_t i = 0; i < pts.size(); ++i) {
                 Punto2D pt = pts[i];
-
-                // 1. Aplicar el Origen Manual como Pivote de Rotación/Escala
                 double px = pt.x + f.origenX;
                 double py = pt.y + f.origenY;
 
-                // 2. Aplicar Escala
                 Punto2D p1 = { S[0][0] * px + S[0][1] * py, S[1][0] * px + S[1][1] * py };
-
-                // 3. Aplicar Reflejo
                 Punto2D p2 = { Ref[0][0] * p1.x + Ref[0][1] * p1.y, Ref[1][0] * p1.x + Ref[1][1] * p1.y };
-
-                // 4. Aplicar Cizallamiento
                 Punto2D p3 = { Sh[0][0] * p2.x + Sh[0][1] * p2.y, Sh[1][0] * p2.x + Sh[1][1] * p2.y };
-
-                // 5. Aplicar Rotación sobre el pivote
                 Punto2D p4 = { R[0][0] * p3.x + R[0][1] * p3.y, R[1][0] * p3.x + R[1][1] * p3.y };
 
-                // 6. Aplicar Traslación Final (Tx, Ty)
-                Punto2D pFinal = { p4.x + f.tx, p4.y + f.ty };
-
-                res.push_back(pFinal);
+                res.push_back({ p4.x + f.tx, p4.y + f.ty });
             }
 
             return res;
@@ -493,13 +603,74 @@ namespace TransformacionesLineales2D {
 
     private:
         System::Void cmbObjetos_SelectedIndexChanged(System::Object^ sender, System::EventArgs^ e) {
-            CargarFiguraDefault(cmbObjetos->SelectedIndex);
-            InicializarEstructuraFrames(totalFrames);
+            if (!faseEdicionIniciada) {
+                if (cmbObjetos->SelectedItem->ToString() != L"Figura de Pantalla Principal" &&
+                    cmbObjetos->SelectedItem->ToString() != L"Personalizada") {
+                    CargarFiguraDefault(cmbObjetos->SelectedIndex);
+                    previewCanvas->Invalidate();
+                }
+            }
         }
 
-        System::Void btnCrearFrames_Click(System::Object^ sender, System::EventArgs^ e) {
+        System::Void btnCrearPersonalizada_Click(System::Object^ sender, System::EventArgs^ e) {
+            creandoPuntosManuales = true;
+            verticesPersonalizadosTemp->clear();
+            lblContadorPuntosManual->Text = L"Puntos creados: 0";
+            pnlCreacionPuntos->Visible = true;
+            pnlCreacionPuntos->BringToFront();
+            previewCanvas->Invalidate();
+        }
+
+        System::Void btnAgregarPuntoManual_Click(System::Object^ sender, System::EventArgs^ e) {
+            try {
+                double x = Convert::ToDouble(txtPuntoX->Text);
+                double y = Convert::ToDouble(txtPuntoY->Text);
+                verticesPersonalizadosTemp->push_back({ x, y });
+                lblContadorPuntosManual->Text = L"Puntos creados: " + verticesPersonalizadosTemp->size().ToString();
+                previewCanvas->Invalidate();
+            }
+            catch (...) {
+                MessageBox::Show(L"Ingrese coordenadas válidas.");
+            }
+        }
+
+        System::Void btnLimpiarPuntosManual_Click(System::Object^ sender, System::EventArgs^ e) {
+            verticesPersonalizadosTemp->clear();
+            lblContadorPuntosManual->Text = L"Puntos creados: 0";
+            previewCanvas->Invalidate();
+        }
+
+        System::Void btnEstablecerFiguraManual_Click(System::Object^ sender, System::EventArgs^ e) {
+            if (verticesPersonalizadosTemp->empty()) {
+                MessageBox::Show(L"Agregue al menos un punto para usar la figura.");
+                return;
+            }
+
+            *verticesBase = *verticesPersonalizadosTemp;
+            creandoPuntosManuales = false;
+            pnlCreacionPuntos->Visible = false;
+
+            if (!cmbObjetos->Items->Contains(L"Personalizada")) {
+                cmbObjetos->Items->Add(L"Personalizada");
+            }
+            cmbObjetos->SelectedItem = L"Personalizada";
+            previewCanvas->Invalidate();
+        }
+
+        System::Void btnConfirmarFiguraYFrames_Click(System::Object^ sender, System::EventArgs^ e) {
+            faseEdicionIniciada = true;
+            grpConfigInicial->Enabled = false;
+            grpEdicionFrames->Enabled = true;
+
             int n = (int)numTotalFrames->Value;
             InicializarEstructuraFrames(n);
+        }
+
+        System::Void btnCambiarFigura_Click(System::Object^ sender, System::EventArgs^ e) {
+            faseEdicionIniciada = false;
+            grpConfigInicial->Enabled = true;
+            grpEdicionFrames->Enabled = false;
+            previewCanvas->Invalidate();
         }
 
         System::Void chkAcumular_CheckedChanged(System::Object^ sender, System::EventArgs^ e) {
@@ -541,12 +712,11 @@ namespace TransformacionesLineales2D {
             Graphics^ g = e->Graphics;
             g->Clear(Color::FromArgb(5, 5, 5));
 
-            // Cargar imagen de fondo de forma segura liberando recursos inmediatamente
             try {
                 Image^ imgFondo = Image::FromFile("wha.png");
                 if (imgFondo != nullptr) {
                     System::Drawing::Imaging::ColorMatrix^ matrix = gcnew System::Drawing::Imaging::ColorMatrix();
-                    matrix->Matrix33 = 0.15f; // Opacidad
+                    matrix->Matrix33 = 0.15f;
 
                     System::Drawing::Imaging::ImageAttributes^ attr = gcnew System::Drawing::Imaging::ImageAttributes();
                     attr->SetColorMatrix(matrix, System::Drawing::Imaging::ColorMatrixFlag::Default, System::Drawing::Imaging::ColorAdjustType::Bitmap);
@@ -556,12 +726,10 @@ namespace TransformacionesLineales2D {
 
                     delete attr;
                     delete matrix;
-                    delete imgFondo; // Evita el bloqueo del archivo en disco y la fuga de RAM
+                    delete imgFondo;
                 }
             }
-            catch (...) {
-                // Manejo en caso de que wha.png no exista en el directorio de ejecución
-            }
+            catch (...) {}
 
             int centroX = previewCanvas->Width / 2;
             int centroY = previewCanvas->Height / 2;
@@ -571,7 +739,17 @@ namespace TransformacionesLineales2D {
             g->DrawLine(penEjes, centroX, 0, centroX, previewCanvas->Height);
             delete penEjes;
 
-            std::vector<Punto2D> pts = CalcularGeometriaFrame(frameActualIndex);
+            std::vector<Punto2D> pts;
+            if (creandoPuntosManuales) {
+                pts = *verticesPersonalizadosTemp;
+            }
+            else if (faseEdicionIniciada) {
+                pts = CalcularGeometriaFrame(frameActualIndex);
+            }
+            else {
+                if (verticesBase != nullptr) pts = *verticesBase;
+            }
+
             if (pts.empty()) return;
 
             Pen^ penFigura = gcnew Pen(Color::FromArgb(0, 240, 255), 2.5f);
