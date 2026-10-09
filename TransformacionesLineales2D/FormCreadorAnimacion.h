@@ -8,6 +8,7 @@
 #include <cstdlib>
 #include <ctime>
 #include <string>
+#include <algorithm>
 
 namespace TransformacionesLineales2D {
 
@@ -160,6 +161,10 @@ namespace TransformacionesLineales2D {
     private:
         System::ComponentModel::Container^ components;
 
+        System::Void previewCanvas_Resize(System::Object^ sender, System::EventArgs^ e) {
+            previewCanvas->Invalidate();
+        }
+
         void EstilarBoton(System::Windows::Forms::Button^ btn, Color backColor, Color textColor) {
             btn->FlatStyle = System::Windows::Forms::FlatStyle::Flat;
             btn->FlatAppearance->BorderSize = 0;
@@ -178,6 +183,27 @@ namespace TransformacionesLineales2D {
         void EstilarLabel(System::Windows::Forms::Label^ lbl) {
             lbl->ForeColor = Color::FromArgb(200, 200, 200);
             lbl->Font = (gcnew System::Drawing::Font(L"Segoe UI", 8, System::Drawing::FontStyle::Regular));
+        }
+
+        System::Void previewCanvas_MouseClick(System::Object^ sender, System::Windows::Forms::MouseEventArgs^ e) {
+            if (creandoPuntosManuales) {
+                int centroX = previewCanvas->Width / 2;
+                int centroY = previewCanvas->Height / 2;
+
+                double xCartesiano = e->X - centroX;
+                double yCartesiano = centroY - e->Y;
+
+                Punto2D nuevoPunto;
+                nuevoPunto.x = xCartesiano;
+                nuevoPunto.y = yCartesiano;
+                verticesPersonalizadosTemp->push_back(nuevoPunto);
+
+                txtPuntoX->Text = xCartesiano.ToString();
+                txtPuntoY->Text = yCartesiano.ToString();
+                lblContadorPuntosManual->Text = L"Puntos creados: " + verticesPersonalizadosTemp->size().ToString();
+
+                previewCanvas->Invalidate();
+            }
         }
 
         void InitializeComponent(void)
@@ -237,7 +263,7 @@ namespace TransformacionesLineales2D {
             this->ClientSize = System::Drawing::Size(920, 620);
             this->Text = L"Creador de Animaciones por Frames";
 
-            // --- PASO 1: SELECCIÓN DE FIGURA Y FRAMES (RECUADRO MORADO) ---
+            // --- PASO 1: SELECCIÓN DE FIGURA Y FRAMES ---
             this->grpConfigInicial->Text = L" PASO 1: Figura y Cantidad de Frames ";
             this->grpConfigInicial->ForeColor = Color::FromArgb(180, 100, 255);
             this->grpConfigInicial->Font = (gcnew System::Drawing::Font(L"Segoe UI", 9, System::Drawing::FontStyle::Bold));
@@ -285,7 +311,7 @@ namespace TransformacionesLineales2D {
             this->grpConfigInicial->Controls->Add(this->numTotalFrames);
             this->grpConfigInicial->Controls->Add(this->btnConfirmarFiguraYFrames);
 
-            // --- PANEL DIBUJO DE PUNTOS MANUALES (OVERLAY SOBRE CANVAS) ---
+            // --- PANEL DIBUJO DE PUNTOS MANUALES ---
             this->pnlCreacionPuntos->Location = System::Drawing::Point(355, 12);
             this->pnlCreacionPuntos->Size = System::Drawing::Size(550, 70);
             this->pnlCreacionPuntos->BackColor = Color::FromArgb(30, 30, 38);
@@ -324,7 +350,7 @@ namespace TransformacionesLineales2D {
             this->pnlCreacionPuntos->Controls->Add(this->lblContadorPuntosManual);
             this->pnlCreacionPuntos->Controls->Add(this->btnEstablecerFiguraManual);
 
-            // --- PASO 2: EDICIÓN DE CADA FRAME (RECUADRO VERDE) ---
+            // --- PASO 2: EDICIÓN DE CADA FRAME ---
             this->grpEdicionFrames->Text = L" PASO 2: Transformación por Frame ";
             this->grpEdicionFrames->ForeColor = Color::FromArgb(57, 255, 20);
             this->grpEdicionFrames->Font = (gcnew System::Drawing::Font(L"Segoe UI", 9, System::Drawing::FontStyle::Bold));
@@ -389,7 +415,6 @@ namespace TransformacionesLineales2D {
             this->chkReflejoX->Location = System::Drawing::Point(12, yPos); this->chkReflejoX->Text = L"Reflejo X"; this->chkReflejoX->ForeColor = Color::White; this->chkReflejoX->Font = (gcnew System::Drawing::Font(L"Segoe UI", 8, System::Drawing::FontStyle::Regular));
             this->chkReflejoY->Location = System::Drawing::Point(130, yPos); this->chkReflejoY->Text = L"Reflejo Y"; this->chkReflejoY->ForeColor = Color::White; this->chkReflejoY->Font = (gcnew System::Drawing::Font(L"Segoe UI", 8, System::Drawing::FontStyle::Regular)); yPos += 30;
 
-            // BOTONES INFERIORES BIEN ALINEADOS
             this->btnAnterior->Location = System::Drawing::Point(12, yPos);
             this->btnAnterior->Size = System::Drawing::Size(95, 30);
             this->btnAnterior->Text = L"◄ Anterior";
@@ -434,6 +459,8 @@ namespace TransformacionesLineales2D {
             this->previewCanvas->Size = System::Drawing::Size(550, 593);
             this->previewCanvas->BackColor = Color::FromArgb(5, 5, 5);
             this->previewCanvas->Paint += gcnew System::Windows::Forms::PaintEventHandler(this, &FormCreadorAnimacion::previewCanvas_Paint);
+            this->previewCanvas->Resize += gcnew System::EventHandler(this, &FormCreadorAnimacion::previewCanvas_Resize);
+            this->previewCanvas->MouseClick += gcnew System::Windows::Forms::MouseEventHandler(this, &FormCreadorAnimacion::previewCanvas_MouseClick);
 
             // Eventos para refrescar la vista previa al tipear
             this->txtOrigenX->TextChanged += gcnew System::EventHandler(this, &FormCreadorAnimacion::OnValoresChanged);
@@ -532,57 +559,14 @@ namespace TransformacionesLineales2D {
             f.verticesResultado = CalcularGeometriaFrame(frameActualIndex);
         }
 
-        std::vector<Punto2D> CalcularGeometriaFrame(int index) {
-            std::vector<Punto2D> res;
-            if (listaFrames == nullptr || index < 0 || index >= static_cast<int>(listaFrames->size())) {
-                if (verticesBase != nullptr) return *verticesBase;
-                return res;
-            }
-
-            const ConfiguracionFrame& f = (*listaFrames)[index];
-
-            const std::vector<Punto2D>* pEntrada = nullptr;
-            if (index > 0 && f.acumularDesdeAnterior) {
-                pEntrada = &((*listaFrames)[index - 1].verticesResultado);
-            }
-            else {
-                pEntrada = verticesBase;
-            }
-
-            if (pEntrada == nullptr) return res;
-
-            std::vector<Punto2D> pts = *pEntrada;
-
-            double rad = f.angulo * 3.14159265358979323846 / 180.0;
-            double S[2][2] = { {f.sx, 0.0}, {0.0, f.sy} };
-            double Ref[2][2] = { {f.reflejoY ? -1.0 : 1.0, 0.0}, {0.0, f.reflejoX ? -1.0 : 1.0} };
-            double Sh[2][2] = { {1.0, f.shx}, {f.shy, 1.0} };
-            double R[2][2] = { {cos(rad), -sin(rad)}, {sin(rad), cos(rad)} };
-
-            for (size_t i = 0; i < pts.size(); ++i) {
-                Punto2D pt = pts[i];
-                double px = pt.x + f.origenX;
-                double py = pt.y + f.origenY;
-
-                Punto2D p1 = { S[0][0] * px + S[0][1] * py, S[1][0] * px + S[1][1] * py };
-                Punto2D p2 = { Ref[0][0] * p1.x + Ref[0][1] * p1.y, Ref[1][0] * p1.x + Ref[1][1] * p1.y };
-                Punto2D p3 = { Sh[0][0] * p2.x + Sh[0][1] * p2.y, Sh[1][0] * p2.x + Sh[1][1] * p2.y };
-                Punto2D p4 = { R[0][0] * p3.x + R[0][1] * p3.y, R[1][0] * p3.x + R[1][1] * p3.y };
-
-                res.push_back({ p4.x + f.tx, p4.y + f.ty });
-            }
-
-            return res;
-        }
-
         void CargarValoresEnGUI() {
             if (listaFrames == nullptr || frameActualIndex >= (int)listaFrames->size()) return;
 
             const ConfiguracionFrame& f = (*listaFrames)[frameActualIndex];
             lblFrameActual->Text = L"FRAME " + (frameActualIndex + 1).ToString() + L" DE " + totalFrames.ToString();
 
-            chkAcumular->Checked = f.acumularDesdeAnterior;
             chkAcumular->Enabled = (frameActualIndex > 0);
+            chkAcumular->Checked = f.acumularDesdeAnterior;
             chkAnimarTransicion->Checked = f.animarTransicion;
 
             txtOrigenX->Text = f.origenX.ToString();
@@ -598,17 +582,60 @@ namespace TransformacionesLineales2D {
             chkReflejoX->Checked = f.reflejoX;
             chkReflejoY->Checked = f.reflejoY;
 
-            previewCanvas->Invalidate();
+            btnAnterior->Enabled = (frameActualIndex > 0);
+            btnSiguiente->Enabled = (frameActualIndex < totalFrames - 1);
         }
 
-    private:
+        std::vector<Punto2D> CalcularGeometriaFrame(int idxFrame) {
+            if (listaFrames == nullptr || idxFrame < 0 || idxFrame >= (int)listaFrames->size()) return *verticesBase;
+
+            const ConfiguracionFrame& f = (*listaFrames)[idxFrame];
+            std::vector<Punto2D> base;
+
+            if (idxFrame > 0 && f.acumularDesdeAnterior) {
+                base = (*listaFrames)[idxFrame - 1].verticesResultado;
+            }
+            else {
+                base = *verticesBase;
+            }
+
+            std::vector<Punto2D> resultado;
+            double rad = f.angulo * 3.14159265358979323846 / 180.0;
+
+            double S[2][2] = { {f.sx, 0.0}, {0.0, f.sy} };
+            double Ref[2][2] = { {f.reflejoY ? -1.0 : 1.0, 0.0}, {0.0, f.reflejoX ? -1.0 : 1.0} };
+            double Sh[2][2] = { {1.0, f.shx}, {f.shy, 1.0} };
+            double R[2][2] = { {cos(rad), -sin(rad)}, {sin(rad), cos(rad)} };
+
+            for (size_t i = 0; i < base.size(); ++i) {
+                Punto2D pt = base[i];
+                double px = pt.x + f.origenX;
+                double py = pt.y + f.origenY;
+
+                Punto2D p1 = { S[0][0] * px + S[0][1] * py, S[1][0] * px + S[1][1] * py };
+                Punto2D p2 = { Ref[0][0] * p1.x + Ref[0][1] * p1.y, Ref[1][0] * p1.x + Ref[1][1] * p1.y };
+                Punto2D p3 = { Sh[0][0] * p2.x + Sh[0][1] * p2.y, Sh[1][0] * p2.x + Sh[1][1] * p2.y };
+                Punto2D p4 = { R[0][0] * p3.x + R[0][1] * p3.y, R[1][0] * p3.x + R[1][1] * p3.y };
+
+                resultado.push_back({ p4.x + f.tx, p4.y + f.ty });
+            }
+
+            return resultado;
+        }
+
         System::Void cmbObjetos_SelectedIndexChanged(System::Object^ sender, System::EventArgs^ e) {
             if (!faseEdicionIniciada) {
-                if (cmbObjetos->SelectedItem->ToString() != L"Figura de Pantalla Principal" &&
-                    cmbObjetos->SelectedItem->ToString() != L"Personalizada") {
-                    CargarFiguraDefault(cmbObjetos->SelectedIndex);
-                    previewCanvas->Invalidate();
+                String^ opcionSeleccionada = cmbObjetos->SelectedItem->ToString();
+
+                // Si se selecciona la figura cargada desde la pantalla principal o la manual, no sobreescribir
+                if (opcionSeleccionada == L"Personalizado Manual" || opcionSeleccionada == L"Figura de Pantalla Principal") {
+                    if (previewCanvas != nullptr) previewCanvas->Invalidate();
+                    return;
                 }
+
+                // Cargar las figuras predeterminadas solo para las opciones estándar (Línea, Casa, Auto, Perro)
+                CargarFiguraDefault(cmbObjetos->SelectedIndex);
+                if (previewCanvas != nullptr) previewCanvas->Invalidate();
             }
         }
 
@@ -618,16 +645,19 @@ namespace TransformacionesLineales2D {
             lblContadorPuntosManual->Text = L"Puntos creados: 0";
             pnlCreacionPuntos->Visible = true;
             pnlCreacionPuntos->BringToFront();
-            previewCanvas->Invalidate();
+            if (previewCanvas != nullptr) previewCanvas->Invalidate();
         }
 
         System::Void btnAgregarPuntoManual_Click(System::Object^ sender, System::EventArgs^ e) {
             try {
                 double x = Convert::ToDouble(txtPuntoX->Text);
                 double y = Convert::ToDouble(txtPuntoY->Text);
-                verticesPersonalizadosTemp->push_back({ x, y });
+                Punto2D pt;
+                pt.x = x;
+                pt.y = y;
+                verticesPersonalizadosTemp->push_back(pt);
                 lblContadorPuntosManual->Text = L"Puntos creados: " + verticesPersonalizadosTemp->size().ToString();
-                previewCanvas->Invalidate();
+                if (previewCanvas != nullptr) previewCanvas->Invalidate();
             }
             catch (...) {
                 MessageBox::Show(L"Ingrese coordenadas válidas.");
@@ -637,50 +667,69 @@ namespace TransformacionesLineales2D {
         System::Void btnLimpiarPuntosManual_Click(System::Object^ sender, System::EventArgs^ e) {
             verticesPersonalizadosTemp->clear();
             lblContadorPuntosManual->Text = L"Puntos creados: 0";
-            previewCanvas->Invalidate();
+            if (previewCanvas != nullptr) previewCanvas->Invalidate();
         }
 
         System::Void btnEstablecerFiguraManual_Click(System::Object^ sender, System::EventArgs^ e) {
-            if (verticesPersonalizadosTemp->empty()) {
-                MessageBox::Show(L"Agregue al menos un punto para usar la figura.");
-                return;
-            }
+            if (!verticesPersonalizadosTemp->empty()) {
+                // 1. Guardar los puntos trazados con el mouse o teclado
+                *verticesBase = *verticesPersonalizadosTemp;
 
-            *verticesBase = *verticesPersonalizadosTemp;
-            creandoPuntosManuales = false;
-            pnlCreacionPuntos->Visible = false;
+                // 2. Cerrar el panel overlay y desactivar el modo creación
+                creandoPuntosManuales = false;
+                pnlCreacionPuntos->Visible = false;
 
-            if (!cmbObjetos->Items->Contains(L"Personalizada")) {
-                cmbObjetos->Items->Add(L"Personalizada");
+                // 3. Agregar el ítem a la lista si no existe
+                if (!cmbObjetos->Items->Contains(L"Personalizado Manual")) {
+                    cmbObjetos->Items->Add(L"Personalizado Manual");
+                }
+
+                // 4. Seleccionar la opción evitando que el evento limpie verticesBase
+                cmbObjetos->SelectedItem = L"Personalizado Manual";
+
+                // 5. Re-asegurar los vértices en verticesBase por si el evento se ejecutó
+                *verticesBase = *verticesPersonalizadosTemp;
+
+                if (previewCanvas != nullptr) previewCanvas->Invalidate();
             }
-            cmbObjetos->SelectedItem = L"Personalizada";
-            previewCanvas->Invalidate();
+            else {
+                MessageBox::Show(L"Agregue al menos un punto.");
+            }
         }
 
         System::Void btnConfirmarFiguraYFrames_Click(System::Object^ sender, System::EventArgs^ e) {
+            if (verticesBase == nullptr || verticesBase->empty()) {
+                MessageBox::Show(L"Seleccione o cree una figura válida antes de continuar.");
+                return;
+            }
+
             faseEdicionIniciada = true;
             grpConfigInicial->Enabled = false;
             grpEdicionFrames->Enabled = true;
 
-            int n = (int)numTotalFrames->Value;
-            InicializarEstructuraFrames(n);
+            int framesCount = (int)numTotalFrames->Value;
+            InicializarEstructuraFrames(framesCount);
+            if (previewCanvas != nullptr) previewCanvas->Invalidate();
         }
 
         System::Void btnCambiarFigura_Click(System::Object^ sender, System::EventArgs^ e) {
             faseEdicionIniciada = false;
             grpConfigInicial->Enabled = true;
             grpEdicionFrames->Enabled = false;
-            previewCanvas->Invalidate();
         }
 
         System::Void chkAcumular_CheckedChanged(System::Object^ sender, System::EventArgs^ e) {
-            GuardarGUIEnFrameActual();
-            previewCanvas->Invalidate();
+            if (faseEdicionIniciada) {
+                GuardarGUIEnFrameActual();
+                if (previewCanvas != nullptr) previewCanvas->Invalidate();
+            }
         }
 
         System::Void OnValoresChanged(System::Object^ sender, System::EventArgs^ e) {
-            GuardarGUIEnFrameActual();
-            previewCanvas->Invalidate();
+            if (faseEdicionIniciada) {
+                GuardarGUIEnFrameActual();
+                if (previewCanvas != nullptr) previewCanvas->Invalidate();
+            }
         }
 
         System::Void btnAnterior_Click(System::Object^ sender, System::EventArgs^ e) {
@@ -688,6 +737,7 @@ namespace TransformacionesLineales2D {
                 GuardarGUIEnFrameActual();
                 frameActualIndex--;
                 CargarValoresEnGUI();
+                if (previewCanvas != nullptr) previewCanvas->Invalidate();
             }
         }
 
@@ -696,14 +746,12 @@ namespace TransformacionesLineales2D {
                 GuardarGUIEnFrameActual();
                 frameActualIndex++;
                 CargarValoresEnGUI();
+                if (previewCanvas != nullptr) previewCanvas->Invalidate();
             }
         }
 
         System::Void btnFinalizar_Click(System::Object^ sender, System::EventArgs^ e) {
             GuardarGUIEnFrameActual();
-            for (size_t i = 0; i < listaFrames->size(); ++i) {
-                (*listaFrames)[i].verticesResultado = CalcularGeometriaFrame((int)i);
-            }
             this->DialogResult = System::Windows::Forms::DialogResult::OK;
             this->Close();
         }
@@ -734,7 +782,7 @@ namespace TransformacionesLineales2D {
             int centroX = previewCanvas->Width / 2;
             int centroY = previewCanvas->Height / 2;
 
-            Pen^ penEjes = gcnew Pen(Color::FromArgb(57, 255, 20), 1.0f);
+            Pen^ penEjes = gcnew Pen(Color::FromArgb(57, 255, 20), 1.5f);
             g->DrawLine(penEjes, 0, centroY, previewCanvas->Width, centroY);
             g->DrawLine(penEjes, centroX, 0, centroX, previewCanvas->Height);
             delete penEjes;
@@ -753,14 +801,23 @@ namespace TransformacionesLineales2D {
             if (pts.empty()) return;
 
             Pen^ penFigura = gcnew Pen(Color::FromArgb(0, 240, 255), 2.5f);
-            for (size_t i = 0; i < pts.size() - 1; ++i) {
-                int x1 = centroX + (int)std::round(pts[i].x);
-                int y1 = centroY - (int)std::round(pts[i].y);
-                int x2 = centroX + (int)std::round(pts[i + 1].x);
-                int y2 = centroY - (int)std::round(pts[i + 1].y);
-                g->DrawLine(penFigura, x1, y1, x2, y2);
+            Brush^ brushPuntos = gcnew SolidBrush(Color::FromArgb(255, 200, 0));
+
+            for (size_t i = 0; i < pts.size(); ++i) {
+                int x = centroX + (int)std::round(pts[i].x);
+                int y = centroY - (int)std::round(pts[i].y);
+
+                g->FillEllipse(brushPuntos, x - 3, y - 3, 6, 6);
+
+                if (i < pts.size() - 1) {
+                    int xSiguiente = centroX + (int)std::round(pts[i + 1].x);
+                    int ySiguiente = centroY - (int)std::round(pts[i + 1].y);
+                    g->DrawLine(penFigura, x, y, xSiguiente, ySiguiente);
+                }
             }
+
             delete penFigura;
+            delete brushPuntos;
         }
     };
 }

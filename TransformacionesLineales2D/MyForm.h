@@ -23,8 +23,10 @@ namespace TransformacionesLineales2D {
     enum TipoTransformacion {
         NINGUNA,
         ESCALA,
-        REFLEXION,
-        CIZALLAMIENTO,
+        REFLEJO_X,
+        REFLEJO_Y,
+        CIZALLAMIENTO_X,
+        CIZALLAMIENTO_Y,
         ROTACION,
         TRASLACION
     };
@@ -32,7 +34,11 @@ namespace TransformacionesLineales2D {
     struct PasoTransformacion {
         TipoTransformacion tipo;
         std::string descripcion;
-        std::vector<Punto2D> verticesEstado;
+        std::vector<Punto2D> verticesEstadoBase; // Estado previo al paso
+        std::vector<Punto2D> verticesEstadoFinal; // Estado posterior al paso
+
+        // Parámetros específicos para animar la matriz incremental de este paso
+        double p1, p2;
     };
 
     public ref class MyForm : public System::Windows::Forms::Form
@@ -44,7 +50,9 @@ namespace TransformacionesLineales2D {
         std::vector<ConfiguracionFrame>* secuenciaAnimacionSecundaria;
         int contadorPuntos;
 
-        System::Drawing::Image^ imagenFondo;
+        // Caché en RAM para optimizar renderizado y eliminar tirones
+        System::Drawing::Image^ imagenFondoCache;
+        ImageAttributes^ atributosImagenCache;
 
         // Control de Animación
         System::Windows::Forms::Timer^ timerAnimacion;
@@ -101,12 +109,24 @@ namespace TransformacionesLineales2D {
             srand((unsigned int)time(NULL));
 
             String^ nombreImagenFondo = L"wha.png";
-
             try {
-                imagenFondo = Image::FromFile(nombreImagenFondo);
+                imagenFondoCache = Image::FromFile(nombreImagenFondo);
+
+                cli::array<cli::array<float>^>^ elementosMatriz = {
+                    gcnew cli::array<float>{ 1.0f, 0.0f, 0.0f, 0.0f, 0.0f },
+                    gcnew cli::array<float>{ 0.0f, 1.0f, 0.0f, 0.0f, 0.0f },
+                    gcnew cli::array<float>{ 0.0f, 0.0f, 1.0f, 0.0f, 0.0f },
+                    gcnew cli::array<float>{ 0.0f, 0.0f, 0.0f, 0.15f, 0.0f },
+                    gcnew cli::array<float>{ 0.0f, 0.0f, 0.0f, 0.0f, 1.0f }
+                };
+
+                ColorMatrix^ matrizColor = gcnew ColorMatrix(elementosMatriz);
+                atributosImagenCache = gcnew ImageAttributes();
+                atributosImagenCache->SetColorMatrix(matrizColor, ColorMatrixFlag::Default, ColorAdjustType::Bitmap);
             }
             catch (...) {
-                imagenFondo = nullptr;
+                imagenFondoCache = nullptr;
+                atributosImagenCache = nullptr;
             }
 
             verticesOriginales = new std::vector<Punto2D>();
@@ -116,7 +136,7 @@ namespace TransformacionesLineales2D {
             contadorPuntos = 0;
 
             timerAnimacion = gcnew System::Windows::Forms::Timer();
-            timerAnimacion->Interval = 30; // Animación fluida
+            timerAnimacion->Interval = 16; // ~60 FPS fluido
             timerAnimacion->Tick += gcnew System::EventHandler(this, &MyForm::timerAnimacion_Tick);
             pasoAnimacionActual = 0;
             progresoPaso = 0.0f;
@@ -137,9 +157,14 @@ namespace TransformacionesLineales2D {
                 timerAnimacion = nullptr;
             }
 
-            if (imagenFondo != nullptr) {
-                delete imagenFondo;
-                imagenFondo = nullptr;
+            if (atributosImagenCache != nullptr) {
+                delete atributosImagenCache;
+                atributosImagenCache = nullptr;
+            }
+
+            if (imagenFondoCache != nullptr) {
+                delete imagenFondoCache;
+                imagenFondoCache = nullptr;
             }
 
             if (verticesOriginales != nullptr) {
@@ -401,36 +426,49 @@ namespace TransformacionesLineales2D {
 
         System::Void timerAnimacion_Tick(System::Object^ sender, System::EventArgs^ e) {
             if (modoAnimacionPorFrames) {
-                // MODULO FRAMES
                 if (secuenciaAnimacionSecundaria == nullptr || secuenciaAnimacionSecundaria->empty()) {
                     timerAnimacion->Stop();
                     return;
                 }
 
-                progresoPaso += 0.05f;
+                if (pasoAnimacionActual >= (int)secuenciaAnimacionSecundaria->size() - 1) {
+                    timerAnimacion->Stop();
+                    pasoAnimacionActual = (int)secuenciaAnimacionSecundaria->size() - 1;
+                    *verticesTransformados = (*secuenciaAnimacionSecundaria)[pasoAnimacionActual].verticesResultado;
+                    if (lstPasos->SelectedIndex != pasoAnimacionActual) {
+                        lstPasos->SelectedIndex = pasoAnimacionActual;
+                    }
+                    canvasBox->Invalidate();
+                    return;
+                }
+
+                progresoPaso += 0.04f; // Velocidad de transición entre frames
 
                 if (progresoPaso >= 1.0f) {
                     progresoPaso = 0.0f;
                     pasoAnimacionActual++;
+
                     if (pasoAnimacionActual >= (int)secuenciaAnimacionSecundaria->size() - 1) {
                         pasoAnimacionActual = (int)secuenciaAnimacionSecundaria->size() - 1;
-                        timerAnimacion->Stop();
-                    }
-                    if (pasoAnimacionActual < (int)secuenciaAnimacionSecundaria->size()) {
-                        lstPasos->SelectedIndex = pasoAnimacionActual;
                         *verticesTransformados = (*secuenciaAnimacionSecundaria)[pasoAnimacionActual].verticesResultado;
+                        if (lstPasos->SelectedIndex != pasoAnimacionActual) {
+                            lstPasos->SelectedIndex = pasoAnimacionActual;
+                        }
+                        timerAnimacion->Stop();
+                        canvasBox->Invalidate();
+                        return;
                     }
+
+                    if (lstPasos->SelectedIndex != pasoAnimacionActual) {
+                        lstPasos->SelectedIndex = pasoAnimacionActual;
+                    }
+                    *verticesTransformados = (*secuenciaAnimacionSecundaria)[pasoAnimacionActual].verticesResultado;
                     canvasBox->Invalidate();
                     return;
                 }
 
                 int idxA = pasoAnimacionActual;
                 int idxB = pasoAnimacionActual + 1;
-
-                if (idxB >= (int)secuenciaAnimacionSecundaria->size()) {
-                    timerAnimacion->Stop();
-                    return;
-                }
 
                 const ConfiguracionFrame& fA = (*secuenciaAnimacionSecundaria)[idxA];
                 const ConfiguracionFrame& fB = (*secuenciaAnimacionSecundaria)[idxB];
@@ -441,76 +479,116 @@ namespace TransformacionesLineales2D {
                     return;
                 }
 
-                double origX = fA.origenX + progresoPaso * (fB.origenX - fA.origenX);
-                double origY = fA.origenY + progresoPaso * (fB.origenY - fA.origenY);
-                double tx = fA.tx + progresoPaso * (fB.tx - fA.tx);
-                double ty = fA.ty + progresoPaso * (fB.ty - fA.ty);
-                double sx = fA.sx + progresoPaso * (fB.sx - fA.sx);
-                double sy = fA.sy + progresoPaso * (fB.sy - fA.sy);
-                double ang = fA.angulo + progresoPaso * (fB.angulo - fA.angulo);
-                double shx = fA.shx + progresoPaso * (fB.shx - fA.shx);
-                double shy = fA.shy + progresoPaso * (fB.shy - fA.shy);
+                // Transición fluida (SmoothStep)
+                float t = progresoPaso * progresoPaso * (3.0f - 2.0f * progresoPaso);
 
-                const std::vector<Punto2D>& basePts = (fB.acumularDesdeAnterior) ? fA.verticesResultado : *verticesOriginales;
+                const std::vector<Punto2D>& ptsA = fA.verticesResultado;
+                const std::vector<Punto2D>& ptsB = fB.verticesResultado;
 
                 std::vector<Punto2D> temp;
-                double rad = ang * 3.14159265358979323846 / 180.0;
-                double S[2][2] = { {sx, 0.0}, {0.0, sy} };
-                double Ref[2][2] = { {fB.reflejoY ? -1.0 : 1.0, 0.0}, {0.0, fB.reflejoX ? -1.0 : 1.0} };
-                double Sh[2][2] = { {1.0, shx}, {shy, 1.0} };
-                double R[2][2] = { {cos(rad), -sin(rad)}, {sin(rad), cos(rad)} };
+                size_t totalPuntos = std::min(ptsA.size(), ptsB.size());
+                temp.reserve(totalPuntos);
 
-                for (size_t i = 0; i < basePts.size(); ++i) {
-                    Punto2D pt = basePts[i];
-                    double px = pt.x + origX;
-                    double py = pt.y + origY;
-
-                    Punto2D p1 = { S[0][0] * px + S[0][1] * py, S[1][0] * px + S[1][1] * py };
-                    Punto2D p2 = { Ref[0][0] * p1.x + Ref[0][1] * p1.y, Ref[1][0] * p1.x + Ref[1][1] * p1.y };
-                    Punto2D p3 = { Sh[0][0] * p2.x + Sh[0][1] * p2.y, Sh[1][0] * p2.x + Sh[1][1] * p2.y };
-                    Punto2D p4 = { R[0][0] * p3.x + R[0][1] * p3.y, R[1][0] * p3.x + R[1][1] * p3.y };
-
-                    temp.push_back({ p4.x + tx, p4.y + ty });
+                // Interpolación geométrica limpia entre los vértices finales del Frame A y el Frame B
+                for (size_t i = 0; i < totalPuntos; ++i) {
+                    double nx = ptsA[i].x + t * (ptsB[i].x - ptsA[i].x);
+                    double ny = ptsA[i].y + t * (ptsB[i].y - ptsA[i].y);
+                    temp.push_back({ nx, ny });
                 }
 
                 *verticesTransformados = temp;
                 canvasBox->Invalidate();
             }
             else {
-                // ANIMACIÓN POR PASOS SECUENCIALES (VENTANA PRINCIPAL)
-                if (historialPasos == nullptr || historialPasos->empty()) {
+                // MODO PASO A PASO (Lógica de transformaciones paso a paso)
+                if (historialPasos == nullptr || historialPasos->size() <= 1) {
                     timerAnimacion->Stop();
                     return;
                 }
 
-                progresoPaso += 0.06f;
+                progresoPaso += 0.04f;
 
                 if (progresoPaso >= 1.0f) {
                     progresoPaso = 0.0f;
+                    *verticesTransformados = (*historialPasos)[pasoAnimacionActual].verticesEstadoFinal;
+
+                    if (lstPasos->SelectedIndex != pasoAnimacionActual) {
+                        lstPasos->SelectedIndex = pasoAnimacionActual;
+                    }
+
                     pasoAnimacionActual++;
 
                     if (pasoAnimacionActual >= (int)historialPasos->size()) {
-                        pasoAnimacionActual = (int)historialPasos->size() - 1;
                         timerAnimacion->Stop();
+                        pasoAnimacionActual = (int)historialPasos->size() - 1;
+                        canvasBox->Invalidate();
+                        return;
                     }
 
-                    lstPasos->SelectedIndex = pasoAnimacionActual;
-                    *verticesTransformados = (*historialPasos)[pasoAnimacionActual].verticesEstado;
                     canvasBox->Invalidate();
                     return;
                 }
 
-                int idxA = pasoAnimacionActual - 1;
-                int idxB = pasoAnimacionActual;
+                const PasoTransformacion& paso = (*historialPasos)[pasoAnimacionActual];
+                const std::vector<Punto2D>& basePts = paso.verticesEstadoBase;
 
-                std::vector<Punto2D> pA = (idxA < 0) ? *verticesOriginales : (*historialPasos)[idxA].verticesEstado;
-                std::vector<Punto2D> pB = (*historialPasos)[idxB].verticesEstado;
+                float t = progresoPaso * progresoPaso * (3.0f - 2.0f * progresoPaso);
 
                 std::vector<Punto2D> temp;
-                for (size_t i = 0; i < pA.size(); ++i) {
-                    double x = pA[i].x + progresoPaso * (pB[i].x - pA[i].x);
-                    double y = pA[i].y + progresoPaso * (pB[i].y - pA[i].y);
-                    temp.push_back({ x, y });
+                temp.reserve(basePts.size());
+
+                for (size_t i = 0; i < basePts.size(); ++i) {
+                    Punto2D pt = basePts[i];
+                    double nx = pt.x;
+                    double ny = pt.y;
+
+                    switch (paso.tipo) {
+                    case ESCALA: {
+                        double curSx = 1.0 + t * (paso.p1 - 1.0);
+                        double curSy = 1.0 + t * (paso.p2 - 1.0);
+                        nx = pt.x * curSx;
+                        ny = pt.y * curSy;
+                        break;
+                    }
+                    case REFLEJO_X: {
+                        nx = pt.x;
+                        ny = pt.y * (1.0 - 2.0 * t);
+                        break;
+                    }
+                    case REFLEJO_Y: {
+                        nx = pt.x * (1.0 - 2.0 * t);
+                        ny = pt.y;
+                        break;
+                    }
+                    case CIZALLAMIENTO_X: {
+                        double curShx = t * paso.p1;
+                        nx = pt.x + curShx * pt.y;
+                        ny = pt.y;
+                        break;
+                    }
+                    case CIZALLAMIENTO_Y: {
+                        double curShy = t * paso.p2;
+                        nx = pt.x;
+                        ny = pt.y + curShy * pt.x;
+                        break;
+                    }
+                    case ROTACION: {
+                        double curAng = t * paso.p1;
+                        double rad = curAng * 3.14159265358979323846 / 180.0;
+                        nx = pt.x * cos(rad) - pt.y * sin(rad);
+                        ny = pt.x * sin(rad) + pt.y * cos(rad);
+                        break;
+                    }
+                    case TRASLACION: {
+                        double curTx = t * paso.p1;
+                        double curTy = t * paso.p2;
+                        nx = pt.x + curTx;
+                        ny = pt.y + curTy;
+                        break;
+                    }
+                    }
+
+                    temp.push_back({ nx, ny });
                 }
 
                 *verticesTransformados = temp;
@@ -562,32 +640,15 @@ namespace TransformacionesLineales2D {
             Graphics^ g = e->Graphics;
             g->Clear(Color::FromArgb(5, 5, 5));
 
-            if (imagenFondo != nullptr) {
-                float opacidad = 0.15f;
-
-                cli::array<cli::array<float>^>^ elementosMatriz = {
-                    gcnew cli::array<float>{ 1.0f, 0.0f, 0.0f, 0.0f, 0.0f },
-                    gcnew cli::array<float>{ 0.0f, 1.0f, 0.0f, 0.0f, 0.0f },
-                    gcnew cli::array<float>{ 0.0f, 0.0f, 1.0f, 0.0f, 0.0f },
-                    gcnew cli::array<float>{ 0.0f, 0.0f, 0.0f, opacidad, 0.0f },
-                    gcnew cli::array<float>{ 0.0f, 0.0f, 0.0f, 0.0f, 1.0f }
-                };
-
-                ColorMatrix^ matrizColor = gcnew ColorMatrix(elementosMatriz);
-                ImageAttributes^ atributosImagen = gcnew ImageAttributes();
-                atributosImagen->SetColorMatrix(matrizColor, ColorMatrixFlag::Default, ColorAdjustType::Bitmap);
-
+            if (imagenFondoCache != nullptr && atributosImagenCache != nullptr) {
                 System::Drawing::Rectangle destRect(0, 0, canvasBox->Width, canvasBox->Height);
                 g->DrawImage(
-                    imagenFondo,
+                    imagenFondoCache,
                     destRect,
-                    0, 0, imagenFondo->Width, imagenFondo->Height,
+                    0, 0, imagenFondoCache->Width, imagenFondoCache->Height,
                     GraphicsUnit::Pixel,
-                    atributosImagen
+                    atributosImagenCache
                 );
-
-                delete atributosImagen;
-                delete matrizColor;
             }
 
             int centroX = canvasBox->Width / 2;
@@ -739,6 +800,8 @@ namespace TransformacionesLineales2D {
 
         System::Void btnTransformar_Click(System::Object^ sender, System::EventArgs^ e) {
             modoAnimacionPorFrames = false;
+            timerAnimacion->Stop();
+
             try {
                 double tx = Convert::ToDouble(txtTx->Text);
                 double ty = Convert::ToDouble(txtTy->Text);
@@ -755,55 +818,82 @@ namespace TransformacionesLineales2D {
 
                 std::vector<Punto2D> estActual = *verticesOriginales;
 
+                // PASO 0: ESTADO INICIAL (Base)
+                historialPasos->push_back({ NINGUNA, "Paso 0: Estado Inicial", estActual, estActual, 0, 0 });
+                lstPasos->Items->Add(L"Paso 0: Estado Inicial");
+
+                int pasoContador = 1;
+
                 // PASO 1: ESCALA
                 if (sx != 1.0 || sy != 1.0) {
+                    std::vector<Punto2D> previo = estActual;
                     for (auto& pt : estActual) { pt.x *= sx; pt.y *= sy; }
-                    historialPasos->push_back({ ESCALA, "Paso 1: Escala (Sx=" + std::to_string(sx) + ", Sy=" + std::to_string(sy) + ")", estActual });
-                    lstPasos->Items->Add(L"Paso 1: Escala");
+                    std::string desc = "Paso " + std::to_string(pasoContador++) + ": Escala (Sx=" + std::to_string(sx) + ", Sy=" + std::to_string(sy) + ")";
+                    historialPasos->push_back({ ESCALA, desc, previo, estActual, sx, sy });
+                    lstPasos->Items->Add(gcnew String(desc.c_str()));
                 }
 
-                // PASO 2: REFLEJO
-                if (refX || refY) {
-                    for (auto& pt : estActual) {
-                        if (refY) pt.x *= -1.0;
-                        if (refX) pt.y *= -1.0;
-                    }
-                    historialPasos->push_back({ REFLEXION, "Paso 2: Reflejo (X=" + std::to_string(refX) + ", Y=" + std::to_string(refY) + ")", estActual });
-                    lstPasos->Items->Add(L"Paso 2: Reflejo");
+                // PASO 2: REFLEJO EN EJE X
+                if (refX) {
+                    std::vector<Punto2D> previo = estActual;
+                    for (auto& pt : estActual) { pt.y *= -1.0; }
+                    std::string desc = "Paso " + std::to_string(pasoContador++) + ": Reflejo Eje X";
+                    historialPasos->push_back({ REFLEJO_X, desc, previo, estActual, 0, 0 });
+                    lstPasos->Items->Add(gcnew String(desc.c_str()));
                 }
 
-                // PASO 3: CIZALLAMIENTO
-                if (shx != 0.0 || shy != 0.0) {
-                    for (auto& pt : estActual) {
-                        double nx = pt.x + shx * pt.y;
-                        double ny = pt.y + shy * pt.x;
-                        pt.x = nx; pt.y = ny;
-                    }
-                    historialPasos->push_back({ CIZALLAMIENTO, "Paso 3: Cizallamiento (Shx=" + std::to_string(shx) + ", Shy=" + std::to_string(shy) + ")", estActual });
-                    lstPasos->Items->Add(L"Paso 3: Cizallamiento");
+                // PASO 3: REFLEJO EN EJE Y
+                if (refY) {
+                    std::vector<Punto2D> previo = estActual;
+                    for (auto& pt : estActual) { pt.x *= -1.0; }
+                    std::string desc = "Paso " + std::to_string(pasoContador++) + ": Reflejo Eje Y";
+                    historialPasos->push_back({ REFLEJO_Y, desc, previo, estActual, 0, 0 });
+                    lstPasos->Items->Add(gcnew String(desc.c_str()));
                 }
 
-                // PASO 4: ROTACIÓN
+                // PASO 4: CIZALLAMIENTO X
+                if (shx != 0.0) {
+                    std::vector<Punto2D> previo = estActual;
+                    for (auto& pt : estActual) { pt.x += shx * pt.y; }
+                    std::string desc = "Paso " + std::to_string(pasoContador++) + ": Cizallamiento X (Shx=" + std::to_string(shx) + ")";
+                    historialPasos->push_back({ CIZALLAMIENTO_X, desc, previo, estActual, shx, 0 });
+                    lstPasos->Items->Add(gcnew String(desc.c_str()));
+                }
+
+                // PASO 5: CIZALLAMIENTO Y
+                if (shy != 0.0) {
+                    std::vector<Punto2D> previo = estActual;
+                    for (auto& pt : estActual) { pt.y += shy * pt.x; }
+                    std::string desc = "Paso " + std::to_string(pasoContador++) + ": Cizallamiento Y (Shy=" + std::to_string(shy) + ")";
+                    historialPasos->push_back({ CIZALLAMIENTO_Y, desc, previo, estActual, 0, shy });
+                    lstPasos->Items->Add(gcnew String(desc.c_str()));
+                }
+
+                // PASO 6: ROTACIÓN
                 if (ang != 0.0) {
+                    std::vector<Punto2D> previo = estActual;
                     double rad = ang * 3.14159265358979323846 / 180.0;
                     for (auto& pt : estActual) {
                         double nx = pt.x * cos(rad) - pt.y * sin(rad);
                         double ny = pt.x * sin(rad) + pt.y * cos(rad);
                         pt.x = nx; pt.y = ny;
                     }
-                    historialPasos->push_back({ ROTACION, "Paso 4: Rotación (" + std::to_string(ang) + "°)", estActual });
-                    lstPasos->Items->Add(L"Paso 4: Rotación");
+                    std::string desc = "Paso " + std::to_string(pasoContador++) + ": Rotación (" + std::to_string(ang) + "°)";
+                    historialPasos->push_back({ ROTACION, desc, previo, estActual, ang, 0 });
+                    lstPasos->Items->Add(gcnew String(desc.c_str()));
                 }
 
-                // PASO 5: TRASLACIÓN
-                if (tx != 0.0 || ty != 0.0 || historialPasos->empty()) {
+                // PASO 7: TRASLACIÓN
+                if (tx != 0.0 || ty != 0.0) {
+                    std::vector<Punto2D> previo = estActual;
                     for (auto& pt : estActual) { pt.x += tx; pt.y += ty; }
-                    historialPasos->push_back({ TRASLACION, "Paso 5: Traslación (Tx=" + std::to_string(tx) + ", Ty=" + std::to_string(ty) + ")", estActual });
-                    lstPasos->Items->Add(L"Paso final: Traslación");
+                    std::string desc = "Paso final: Traslación (Tx=" + std::to_string(tx) + ", Ty=" + std::to_string(ty) + ")";
+                    historialPasos->push_back({ TRASLACION, desc, previo, estActual, tx, ty });
+                    lstPasos->Items->Add(gcnew String(desc.c_str()));
                 }
 
                 *verticesTransformados = estActual;
-                if (!lstPasos->Items->Count == 0) lstPasos->SelectedIndex = lstPasos->Items->Count - 1;
+                if (lstPasos->Items->Count > 0) lstPasos->SelectedIndex = lstPasos->Items->Count - 1;
                 canvasBox->Invalidate();
             }
             catch (...) {
@@ -829,33 +919,56 @@ namespace TransformacionesLineales2D {
 
         System::Void btnAnimarPasos_Click(System::Object^ sender, System::EventArgs^ e) {
             if (modoAnimacionPorFrames) {
-                if (!secuenciaAnimacionSecundaria->empty()) {
+                if (secuenciaAnimacionSecundaria != nullptr && !secuenciaAnimacionSecundaria->empty()) {
                     pasoAnimacionActual = 0;
                     progresoPaso = 0.0f;
+                    *verticesTransformados = (*secuenciaAnimacionSecundaria)[0].verticesResultado;
+                    lstPasos->SelectedIndex = 0;
+                    canvasBox->Invalidate();
                     timerAnimacion->Start();
                 }
             }
             else {
+                // 1. Construir historial de pasos
                 btnTransformar_Click(sender, e);
-                if (historialPasos != nullptr && !historialPasos->empty()) {
-                    pasoAnimacionActual = 0;
+
+                if (historialPasos != nullptr && historialPasos->size() > 1) {
+                    // Empezar en el Paso 1 (que va del Estado Inicial -> Paso 1)
+                    pasoAnimacionActual = 1;
                     progresoPaso = 0.0f;
+
+                    // Fijar visualmente la figura en el Paso 0 (Estado Inicial)
+                    *verticesTransformados = (*historialPasos)[0].verticesEstadoBase;
+                    lstPasos->SelectedIndex = 0;
+
+                    canvasBox->Invalidate();
                     timerAnimacion->Start();
                 }
             }
         }
 
         System::Void lstPasos_SelectedIndexChanged(System::Object^ sender, System::EventArgs^ e) {
+            if (timerAnimacion->Enabled) return;
+
             int idx = lstPasos->SelectedIndex;
-            if (modoAnimacionPorFrames && secuenciaAnimacionSecundaria != nullptr) {
-                if (idx >= 0 && idx < (int)secuenciaAnimacionSecundaria->size()) {
+            if (idx < 0) return;
+
+            if (modoAnimacionPorFrames) {
+                if (secuenciaAnimacionSecundaria != nullptr && idx < (int)secuenciaAnimacionSecundaria->size()) {
                     *verticesTransformados = (*secuenciaAnimacionSecundaria)[idx].verticesResultado;
                     canvasBox->Invalidate();
                 }
             }
-            else if (historialPasos != nullptr) {
-                if (idx >= 0 && idx < (int)historialPasos->size()) {
-                    *verticesTransformados = (*historialPasos)[idx].verticesEstado;
+            else {
+                if (historialPasos != nullptr && idx < (int)historialPasos->size()) {
+                    if (idx == 0) {
+                        // Paso 0 muestra el Estado Inicial
+                        *verticesTransformados = (*historialPasos)[0].verticesEstadoBase;
+                    }
+                    else {
+                        // Pasos subsecuentes muestran el resultado del paso
+                        *verticesTransformados = (*historialPasos)[idx].verticesEstadoFinal;
+                    }
                     canvasBox->Invalidate();
                 }
             }
