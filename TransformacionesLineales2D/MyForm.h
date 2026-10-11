@@ -670,7 +670,7 @@ namespace TransformacionesLineales2D {
 
                 g->DrawLine(penFigura, x1, y1, x2, y2);
             }
-            delete penFigura;
+            delete penFigura; // Liberación explícita de memoria GDI
         }
 
         System::Void CargarFiguraBase() {
